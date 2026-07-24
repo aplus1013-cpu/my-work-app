@@ -161,34 +161,10 @@ def zip_files(paths):
     return buffer.getvalue()
 
 
-def build_report_text(report, meta):
-    """콘솔용 print_report()와 같은 서식으로, 복사/다운로드용 텍스트를 만든다."""
-    lines = [
-        f"[매출 요약] 기준일: {meta['최신마감일']} "
-        f"(누적일수 {meta['누적일수']}일 / 해당월 전체일수 {meta['해당월전체일수']}일)"
-    ]
-    for e in report:
-        lines.append("")
-        lines.append(
-            f"{e['행사자이름']} 님 (매니저: {e['매니저']}), 이번 달 누적 매출 {f1.format_won(e['누적매출'])} "
-            f"(누적일수 기준 목표 대비 {e['달성률'] * 100:.1f}% 달성)"
-        )
-        for s in e["거래처목록"]:
-            label = f1.combo_label(s["품목군슬롯"])
-            lines.append(
-                f"  - {s['거래처명']}: {s['채널']}채널 · {label} 그룹 "
-                f"전국 {s['그룹인원수']}명 중 {s['순위']}위 "
-                f"(근무 {s['근무일수']}일 · 일평균 {f1.format_won(s['일평균매출'])} · "
-                f"누적 {f1.format_won(s['누적매출'])})"
-            )
-    return "\n".join(lines)
-
-
 if "employee_zip" not in st.session_state:
     st.session_state.employee_zip = None
     st.session_state.manager_zip = None
     st.session_state.summary_message = None
-    st.session_state.report_text = None
     st.session_state.dash_report = None
     st.session_state.dash_group_rankings = None
     st.session_state.dash_meta = None
@@ -212,7 +188,6 @@ with tab_sales_summary:
                         st.session_state.employee_zip = None
                         st.session_state.manager_zip = None
                         st.session_state.summary_message = None
-                        st.session_state.report_text = None
                         st.session_state.dash_report = None
                         st.session_state.dash_group_rankings = None
                         st.session_state.dash_meta = None
@@ -230,7 +205,6 @@ with tab_sales_summary:
                         st.session_state.summary_message = (
                             f"완료: 행사자 {len(employee_paths)}명, 매니저 {len(manager_paths)}명 요약 생성"
                         )
-                        st.session_state.report_text = build_report_text(report, result["meta"])
                         st.session_state.dash_report = report
                         st.session_state.dash_group_rankings = result["group_rankings"]
                         st.session_state.dash_meta = result["meta"]
@@ -238,7 +212,6 @@ with tab_sales_summary:
                 st.session_state.employee_zip = None
                 st.session_state.manager_zip = None
                 st.session_state.summary_message = None
-                st.session_state.report_text = None
                 st.session_state.dash_report = None
                 st.session_state.dash_group_rankings = None
                 st.session_state.dash_meta = None
@@ -267,14 +240,58 @@ with tab_sales_summary:
                 )
 
         with st.container(key="text-card", border=True):
-            st.markdown("**결과 요약 텍스트** — 오른쪽 위 아이콘으로 복사하거나, 아래 버튼으로 내려받을 수 있어요.")
-            st.code(st.session_state.report_text, language=None)
-            st.download_button(
-                "텍스트로 다운로드",
-                data=st.session_state.report_text,
-                file_name="매출요약.txt",
-                mime="text/plain",
+            st.markdown("**결과 요약** — 행사자별 누적매출·달성률을 한눈에 볼 수 있어요.")
+
+            df_result_emp = pd.DataFrame(
+                [
+                    {
+                        "행사자이름": e["행사자이름"],
+                        "매니저": e["매니저"],
+                        "누적매출": e["누적매출"],
+                        "달성률(%)": round(e["달성률"] * 100, 1),
+                    }
+                    for e in st.session_state.dash_report
+                ]
+            ).sort_values("누적매출", ascending=False)
+
+            base = alt.Chart(df_result_emp).encode(
+                y=alt.Y("행사자이름:N", sort="-x", title=None),
+                x=alt.X("누적매출:Q", title="누적매출(원)"),
+                tooltip=[
+                    alt.Tooltip("행사자이름:N"),
+                    alt.Tooltip("매니저:N"),
+                    alt.Tooltip("누적매출:Q", format=",.0f", title="누적매출(원)"),
+                    alt.Tooltip("달성률(%):Q", format=".1f"),
+                ],
             )
+            bars = base.mark_bar(cornerRadiusEnd=4, size=18, color=CHART_BLUE)
+            labels = base.mark_text(align="left", dx=4, color=CHART_INK_PRIMARY).encode(
+                text=alt.Text("누적매출:Q", format=",.0f")
+            )
+            st.altair_chart(style_chart((bars + labels).properties(height=alt.Step(24))), width="stretch")
+
+            st.dataframe(df_result_emp, hide_index=True, width="stretch")
+
+            with st.expander("거래처별 상세 보기"):
+                df_result_stores = pd.DataFrame(
+                    [
+                        {
+                            "행사자이름": e["행사자이름"],
+                            "매니저": e["매니저"],
+                            "거래처명": s["거래처명"],
+                            "채널": s["채널"],
+                            "품목군": f1.combo_label(s["품목군슬롯"]),
+                            "전국순위": s["순위"],
+                            "그룹인원수": s["그룹인원수"],
+                            "근무일수": s["근무일수"],
+                            "일평균매출": s["일평균매출"],
+                            "누적매출": s["누적매출"],
+                        }
+                        for e in st.session_state.dash_report
+                        for s in e["거래처목록"]
+                    ]
+                )
+                st.dataframe(df_result_stores, hide_index=True, width="stretch")
 
 with tab_dashboard:
     st.caption("'매출 요약' 탭에서 계산한 결과를, 채널·매니저·행사자 관점의 차트로 보여줍니다.")
