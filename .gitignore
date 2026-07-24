@@ -1,0 +1,13 @@
+# 비밀 값 - 절대 커밋하지 않음
+.env
+.env.*
+!.env.example
+
+# Claude Code 로컬 설정 (사용자별 권한 등, 팀 공유 대상 아님)
+.claude/settings.local.json
+
+# Python 캐시/가상환경
+__pycache__/
+*.pyc
+.venv/
+venv/
