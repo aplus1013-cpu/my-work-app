@@ -651,9 +651,15 @@ def get_openai_api_key():
     load_chat_env_file()
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
+        try:
+            api_key = st.secrets.get("OPENAI_API_KEY")
+        except Exception:
+            api_key = None
+    if not api_key:
         raise RuntimeError(
-            "OPENAI_API_KEY가 설정되어 있지 않습니다. 저장소 루트에 .env 파일을 만들고 "
-            "OPENAI_API_KEY=sk-... 한 줄을 넣어주세요."
+            "OPENAI_API_KEY가 설정되어 있지 않습니다. 로컬에서는 저장소 루트에 .env 파일을 만들고 "
+            "OPENAI_API_KEY=sk-... 한 줄을 넣고, Streamlit Cloud에 배포했다면 앱의 Secrets 설정에 "
+            "같은 키를 넣어주세요."
         )
     return api_key
 
