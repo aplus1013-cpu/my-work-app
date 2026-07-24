@@ -39,7 +39,7 @@ CORE_REQUIRED_FIELDS = [
 
 SPIKE_MULTIPLIER = 5  # 비정상 급증 기준 배수 (추후 조정 가능, 기획서 참고)
 
-CHANNEL_PATTERN = re.compile(r"\d+월\s+(\S+)\s+\d+주차")
+CHANNEL_PATTERN = re.compile(r"\d+월[\s_]+(\S+?)[\s_]+\d+주차")
 FILENAME_RULE_HINT = (
     '파일명에 "유인행사매출"이 포함되어야 하고, "N월 채널명 N주차" 형태도 들어가야 합니다 '
     '(예: "7월 KAT 3주차 유인행사매출 (~7/15) 공유(件).xlsx").'
