@@ -6,6 +6,7 @@ Streamlit 웹 화면: 매출 데이터 엑셀 업로드 -> "요약하기" -> 사
 (feature3/feature4가 outputs/employee-pages, outputs/manager-pages에 파일을 저장하는 동작도 그대로 유지 -
  이 화면은 그 파일들을 모아 zip으로 다운로드하도록 얹었을 뿐이다).
 """
+import html
 import io
 import os
 import tempfile
@@ -123,6 +124,108 @@ div.stButton > button[kind="primary"] {
     font-size: 0.9rem;
     color: #5B4E8C;
     margin-bottom: 0.5rem;
+}
+
+/* 우측 하단 플로팅 챗봇 (카카오톡 스타일) */
+.st-key-chat-fab-container {
+    position: fixed !important;
+    bottom: 24px;
+    right: 24px;
+    left: auto !important;
+    width: fit-content !important;
+    z-index: 9999;
+}
+.st-key-chat-fab-container button {
+    width: 56px;
+    height: 56px;
+    border-radius: 50% !important;
+    background-color: #FEE500 !important;
+    color: #191919 !important;
+    font-size: 1.4rem !important;
+    border: none !important;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+}
+.st-key-chat-panel {
+    position: fixed !important;
+    bottom: 24px;
+    right: 24px;
+    left: auto !important;
+    width: 340px !important;
+    max-width: calc(100vw - 32px);
+    background-color: #ffffff !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    z-index: 9999;
+}
+.chat-header {
+    background-color: #FEE500;
+    color: #3B1E1E;
+    font-weight: 700;
+    font-size: 0.95rem;
+    padding: 10px 40px 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+}
+.chat-header-sub {
+    display: block;
+    font-weight: 400;
+    font-size: 0.72rem;
+    color: #6b5a1e;
+    margin-top: 2px;
+}
+.st-key-chat-close-btn {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    z-index: 10000;
+}
+.st-key-chat-close-btn button {
+    background: transparent !important;
+    border: none !important;
+    color: #3B1E1E !important;
+    font-size: 1rem !important;
+    min-height: unset !important;
+    padding: 4px !important;
+    box-shadow: none !important;
+}
+.chat-messages {
+    background-color: #b2c7da;
+    padding: 10px;
+    border-radius: 10px;
+    overflow-y: auto;
+    max-height: 300px;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.chat-row { display: flex; }
+.chat-row.chat-bubble-user { justify-content: flex-end; }
+.chat-row.chat-bubble-bot { justify-content: flex-start; }
+.chat-bubble {
+    max-width: 78%;
+    padding: 8px 12px;
+    border-radius: 16px;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    word-break: break-word;
+}
+.chat-bubble-user .chat-bubble {
+    background-color: #FEE500;
+    color: #191919;
+    border-bottom-right-radius: 4px;
+}
+.chat-bubble-bot .chat-bubble {
+    background-color: #ffffff;
+    color: #191919;
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+.chat-empty {
+    color: #52514e;
+    font-size: 0.82rem;
+    text-align: center;
+    padding: 24px 8px;
 }
 </style>
 """
@@ -510,3 +613,141 @@ with tab_dashboard:
             ]
         )
         st.dataframe(df_emp_stores, hide_index=True, width="stretch")
+
+# ---------------------------------------------------------------------------
+# 우측 하단 플로팅 챗봇: 이 서비스에 대한 방문자 질문에 GPT API로 답변
+# (매출 계산/렌더링과 무관한 독립 기능이라 파일 맨 아래에 따로 둔다)
+# ---------------------------------------------------------------------------
+
+CHAT_ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+CHAT_CONTEXT_FILES = [
+    "CLAUDE.md",
+    os.path.join("specs", "기획서.md"),
+    os.path.join("specs", "매출요약앱_흐름도.md"),
+    os.path.join("specs", "feature-1-spec.md"),
+    os.path.join("specs", "feature-2-spec.md"),
+    os.path.join("specs", "feature-3-spec.md"),
+    os.path.join("specs", "feature-4-spec.md"),
+]
+
+
+def load_chat_env_file():
+    """.env 파일이 있으면 KEY=VALUE 줄을 환경변수로 보충한다 (generate_image.py/categorize_memos.py와 동일한 패턴)."""
+    if not os.path.exists(CHAT_ENV_FILE):
+        return
+    with open(CHAT_ENV_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+def get_openai_api_key():
+    load_chat_env_file()
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY가 설정되어 있지 않습니다. 저장소 루트에 .env 파일을 만들고 "
+            "OPENAI_API_KEY=sk-... 한 줄을 넣어주세요."
+        )
+    return api_key
+
+
+@st.cache_data(show_spinner=False)
+def load_service_context():
+    """기획서·CLAUDE.md 등 명세 문서를 읽어, 챗봇이 서비스 내용을 답할 배경 지식으로 합친다."""
+    folder = os.path.dirname(os.path.abspath(__file__))
+    parts = []
+    for rel_path in CHAT_CONTEXT_FILES:
+        path = os.path.join(folder, rel_path)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                parts.append(f"### {rel_path}\n{f.read()}")
+    return "\n\n".join(parts)
+
+
+def ask_chatbot(question, history):
+    from openai import OpenAI
+
+    api_key = get_openai_api_key()
+    client = OpenAI(api_key=api_key)
+    system_prompt = (
+        "당신은 이 웹앱('판촉사원 매출 요약')을 방문한 사람에게 서비스를 안내하는 챗봇입니다. "
+        "아래는 이 서비스의 기획서와 기능 명세 문서입니다. 이 내용을 바탕으로 방문자의 질문에 "
+        "친절하고 간결하게 한국어로 답하세요. 문서에 없는 내용은 모른다고 솔직히 답하고 추측하지 마세요.\n\n"
+        f"{load_service_context()}"
+    )
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend({"role": turn["role"], "content": turn["content"]} for turn in history)
+    messages.append({"role": "user", "content": question})
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        temperature=0.3,
+    )
+    return response.choices[0].message.content.strip()
+
+
+def render_chat_bubbles(history):
+    if not history:
+        return (
+            '<div class="chat-empty">궁금한 점을 물어보세요.<br>예: "이 서비스는 뭘 하는 앱이야?"</div>'
+        )
+    rows = []
+    for turn in history:
+        role_class = "chat-bubble-user" if turn["role"] == "user" else "chat-bubble-bot"
+        text = html.escape(turn["content"]).replace("\n", "<br>")
+        rows.append(f'<div class="chat-row {role_class}"><div class="chat-bubble">{text}</div></div>')
+    return "".join(rows)
+
+
+if "chat_open" not in st.session_state:
+    st.session_state.chat_open = False
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+if not st.session_state.chat_open:
+    with st.container(key="chat-fab-container"):
+        if st.button("💬", key="chat-fab"):
+            st.session_state.chat_open = True
+            st.rerun()
+else:
+    with st.container(key="chat-panel", border=True):
+        st.markdown(
+            '<div class="chat-header">💬 무엇이든 물어보세요'
+            '<span class="chat-header-sub">판촉사원 매출 요약 안내</span></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("✕", key="chat-close-btn"):
+            st.session_state.chat_open = False
+            st.rerun()
+
+        st.markdown(
+            f'<div class="chat-messages">{render_chat_bubbles(st.session_state.chat_history)}</div>',
+            unsafe_allow_html=True,
+        )
+
+        with st.form("chat-form", clear_on_submit=True):
+            user_question = st.text_input(
+                "메시지", label_visibility="collapsed", placeholder="궁금한 걸 물어보세요"
+            )
+            send_clicked = st.form_submit_button("보내기")
+
+        if send_clicked and user_question and user_question.strip():
+            question = user_question.strip()
+            st.session_state.chat_history.append({"role": "user", "content": question})
+            try:
+                with st.spinner("답변을 생각하는 중..."):
+                    answer = ask_chatbot(question, st.session_state.chat_history[:-1])
+                st.session_state.chat_history.append({"role": "assistant", "content": answer})
+            except Exception as e:
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": f"죄송해요, 답변 중 오류가 발생했어요: {e}"}
+                )
+            st.rerun()
